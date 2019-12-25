@@ -11,15 +11,15 @@ Please also read the Additional BSD Notice below.
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
-â* Redistributions of source code must retain the above copyright notice, this
+ï¿½* Redistributions of source code must retain the above copyright notice, this
    list of conditions and the disclaimer below.
-â* Redistributions in binary form must reproduce the above copyright notice,
+ï¿½* Redistributions in binary form must reproduce the above copyright notice,
    this list of conditions and the disclaimer (as noted below) in the documentation
    and/or other materials provided with the distribution.
-â* Neither the name of the LLNL nor the names of its contributors may be used to
+ï¿½* Neither the name of the LLNL nor the names of its contributors may be used to
    endorse or promote products derived from this software without specific prior
    written permission.
-â* 
+ï¿½* 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -78,42 +78,21 @@ char VERS[] = "1.5";
  * These macros start/stop the timer and measure the difference
  * =============================================================
  */
-#ifdef USE_GETTIMEOFDAY
-/* use gettimeofday() for timers */
 
-#include <sys/time.h>
-#define __TIME_START__    (gettimeofday(&g_timeval__start, &g_timezone))
-#define __TIME_END_SEND__ (gettimeofday(&g_timeval__end_send, &g_timezone))
-#define __TIME_END_RECV__ (gettimeofday(&g_timeval__end_recv, &g_timezone))
-#define __TIME_USECS_SEND__ (d_Time_Diff_Micros(g_timeval__start, g_timeval__end))
-#define __TIME_USECS_RECV__ (d_Time_Diff_Micros(g_timeval__start, g_timeval__end_recv))
-#define d_Time_Diff_Micros(timeval__start, timeval__end) \
-  ( \
-    (double) (  (timeval__end.tv_sec  - timeval__start.tv_sec ) * 1000000 \
-              + (timeval__end.tv_usec - timeval__start.tv_usec)  ) \
-  )
-#define d_Time_Micros(timeval) \
-  ( \
-    (double) (  timeval.tv_sec * 1000000 \
-              + timeval.tv_usec  ) \
-  )
-struct timeval  g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
-struct timezone g_timezone;
+long long int CPU_FREQUENCY=2700000000;
 
-#else
-/* use MPI_Wtime() for timers instead of gettimeofday() (recommended)
- * on some systems gettimeofday may reset backwards via some global clock,
- * which leads to incorrect timing data including negative time periods
- */
+inline long long int getCurrentCycle() {
+	unsigned low, high;
+	__asm__ __volatile__("rdtsc" : "=a" (low), "=d" (high));
+	return ((unsigned long long)low) | (((unsigned long long)high)<<32);
+}
 
-#define __TIME_START__    (g_timeval__start    = MPI_Wtime())
-#define __TIME_END_SEND__ (g_timeval__end_send = MPI_Wtime())
-#define __TIME_END_RECV__ (g_timeval__end_recv = MPI_Wtime())
-#define __TIME_USECS_SEND__ ((g_timeval__end_send - g_timeval__start) * 1000000.0)
-#define __TIME_USECS_RECV__ ((g_timeval__end_recv - g_timeval__start) * 1000000.0)
-double g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
-
-#endif /* of USE_GETTIMEOFDAY */
+#define __TIME_START__    (g_timeval__start    = getCurrentCycle())
+#define __TIME_END_SEND__ (g_timeval__end_send = getCurrentCycle())
+#define __TIME_END_RECV__ (g_timeval__end_recv = getCurrentCycle())
+#define __TIME_USECS_SEND__ ((g_timeval__end_send - g_timeval__start) / 2700)
+#define __TIME_USECS_RECV__ ((g_timeval__end_recv - g_timeval__start) / 2700)
+long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 
 
 /* =============================================================

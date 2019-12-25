@@ -117,7 +117,7 @@ sub compute_percentages
   my $base = shift @_;
   my @ret  = ();
   foreach my $val (@_) {
-    push @ret, sprintf("%3.1f%", $val / $base * 100);
+    push @ret, sprintf("%3.1f", $val / $base * 100);
   }
   return @ret;
 }
