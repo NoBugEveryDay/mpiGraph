@@ -1,73 +1,149 @@
-# mpiGraph
-Benchmark to generate network bandwidth images
+# mpiGraph运行方法
 
-## Build 
-    make
+## 下载
 
-## Run
-Run one MPI task per node:
+到GitHub上下载源码即可 https://github.com/LLNL/mpiGraph 
 
-    SLURM: srun -n <nodes> -N <nodes> ./mpiGraph 1048576 10 10 > mpiGraph.out
-    Open MPI: mpirun --map-by node -np <nodes> ./mpiGraph 1048576 10 10 > mpiGraph.out
+## 编译
 
-General usage:
+#### 编译安装主程序
 
-    mpiGraph <size> <iters> <window>
+```shell
+unzip mpiGraph-master.zip
+cd mpiGraph-master/
+module load IMPI/2018.1.163-icc-18.0.1
+```
 
-To compute bandwidth, each task averages the bandwidth from *iters* iterations.
-In each iteration, a process sends *window* number of messages of *size* bytes to another process
-while it simultaneously receives an equal number of messages of equal size from another process.
-The source and destination processes in each step are not necessary the same process.
+编辑`makefile`
 
-Watch progress:
+```makefile
+all: clean
+        mpiicc -O3 -xhost -ipo -o mpiGraph mpiGraph.c
 
-    tail -f mpiGraph.out
+debug:
+        mpiicc -g -O0 -o mpiGraph mpiGraph.c
 
-## Results
-Parse output and create html report:
+clean:
+        rm -rf mpiGraph.o mpiGraph
+```
 
-    crunch_mpiGraph mpiGraph.out
+然后直接`make`
 
-View results in a web browser:
+#### 安装netpbm
 
-    firefox file:///path/to/mpiGraph.out_html/index.html
+```shell
+wget http://hfs.sysu.tech/software/linux/mpiGraph/netpbm/netpbm-10.79.00-7.el7.x86_64.rpm
+wget http://hfs.sysu.tech/software/linux/mpiGraph/netpbm/netpbm-progs-10.79.00-7.el7.x86_64.rpm
+rpm2cpio netpbm-10.79.00-7.el7.x86_64.rpm | cpio -idvm
+rpm2cpio netpbm-progs-10.79.00-7.el7.x86_64.rpm | cpio -idvm
+```
 
-# Description
+## 运行
 
-This package consists of an MPI application called "mpiGraph" written in C
-to measure message bandwidth and an associated "crunch_mpigraph"
-script written in Perl to parse the application output a generate an HTML
-report.  The mpiGraph application is designed to inspect the health
-and scalability of a high-performance interconnect while subjecting it
-to heavy load.  This is useful to detect hardware and software
-problems in a system, such as slow nodes, links, switches, or
-contention in switch routing.  It is also useful to characterize how
-interconnect performance changes with different settings or how one
-interconnect type compares to another.
+参数
 
-Typically, one MPI task is run per node (or per interconnect link).
-For a job of N MPI tasks, the N tasks are logically arranged in a ring
-counting ranks from 0 and increasing to the right with the end
-wrapping back to rank 0.  Then a series of N-1 steps are executed.
-In each step, each MPI task sends to the task D units to the right and
-simultaneously receives from the task D units to the left.  The value
-of D starts at 1 and runs to N-1, so that by the end of the N-1 steps,
-each task has sent to and received from every other task in the run,
-excluding itself.  At the end of the run, two NxN matrices of
-bandwidths are gathered and written to stdout -- one for send
-bandwidths and one for receive bandwidths.
+```shell
+mpiGraph <size> <iters> <window>
+```
 
-The crunch_mpiGraph script is then run on this output to generate a
-report.  It includes a pair of bitmap images
-representing bandwidth values between different task pairings.
-Pixels in this image are colored depending on relative bandwidth
-values.  The maximum bandwidth value is set to pure white (value
-255) and other values are scaled to black (0) depending on their
-percentage of the maximum.  One can then visually inspect and identify anomalous
-behavior in the system.  One may zoom in and inspect image
-features in more detail by hovering the mouse cursor over the image.
-Javascript embedded in the HTML report opens a pop-up tooltip with a
-zoomed-in view of the cursor location.
+第一个参数`size` 为消息大小，单位为byte
 
-## References
-[Contention-free Routing for Shift-based Communication in MPI Applications on Large-scale Infiniband Clusters](https://e-reports-ext.llnl.gov/pdf/380228.pdf), Adam Moody, LLNL-TR-418522, Oct 2009
+第二个参数`iters `为迭代次数
+
+第三个参数`window`为每次迭代同时发送的消息的数量
+
+```shell
+srun -N 32 -p test_docker ./mpiGraph 1048576 1000 30 > mpiGraph.out
+```
+
+或者
+
+```shell
+mpirun -n 32 -ppn 1 -hosts cpn1,cpn2,cpn3,cpn4,cpn5,cpn6,cpn7,cpn8,cpn9,cpn10,cpn11,cpn12,cpn13,cpn14,cpn15,cpn16,cpn106,cpn107,cpn108,cpn109,cpn110,cpn111,cpn112,cpn113,cpn114,cpn115,cpn116,cpn117,cpn118,cpn119,cpn120,cpn121 ./mpiGraph 1048576 1000 30 > mpiGraph.out
+```
+
+## 后处理
+
+```shell
+export PATH=$PATH:/GPUFS/nsccgz_yfdu_16/fgn/sriov-test/mpigraph/usr/bin
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/GPUFS/nsccgz_yfdu_16/fgn/sriov-test/mpigraph/usr/lib64
+./crunch_mpiGraph mpiGraph.out
+```
+
+生成带图的html网页
+
+## debug
+
+### bug1
+
+`crunch_mpiGraph`第120行
+
+```perl
+push @ret, sprintf("%3.1f%", $val / $base * 100);
+改为
+push @ret, sprintf("%3.1f%%", $val / $base * 100);
+```
+
+不改会出现如下bug
+
+```
+Missing argument in sprintf at ./crunch_mpiGraph line 120.
+Invalid conversion in sprintf: end of string at ./crunch_mpiGraph line 120.
+```
+
+生成的HTML在有些地方会有undefined，不知道这个算不算bug
+
+### bug2
+
+`crunch_mpiGraph`注释掉305行的
+
+```perl
+print HTML "<tr><td>Run by:</td><td>" . $parts[0] . " (" . $parts[4]. ")</td></tr>\n";
+```
+
+因为有的HPC集群上无法正确获取用户名
+
+### bug3
+
+`mpiGraph`超级坑的bug，要不是openmpi给我报错了，还真发现不了它的下标写错了……
+
+第171行两个数组下标计算错误，都多了一个`-1`
+
+将
+
+```c
+MPI_Testall((k+1)/2, &request_array[(k+1)/2-1], &flag_sends, &status_array[(k+1)/2-1]);
+```
+
+改为
+
+```c
+MPI_Testall((k+1)/2, &request_array[(k+1)/2], &flag_sends, &status_array[(k+1)/2]);
+```
+
+## 优化
+
+因为对小消息计时非常不准，所以使用CPU周期计时器对代码进行优化
+
+将81行至116行的代码替换为如下
+
+```c++
+long long int CPU_FREQUENCY=2700000000;
+
+inline long long int getCurrentCycle() {
+	unsigned low, high;
+	__asm__ __volatile__("rdtsc" : "=a" (low), "=d" (high));
+	return ((unsigned long long)low) | (((unsigned long long)high)<<32);
+}
+
+#define __TIME_START__    (g_timeval__start    = getCurrentCycle())
+#define __TIME_END_SEND__ (g_timeval__end_send = getCurrentCycle())
+#define __TIME_END_RECV__ (g_timeval__end_recv = getCurrentCycle())
+#define __TIME_USECS_SEND__ ((g_timeval__end_send - g_timeval__start) / 2700)
+#define __TIME_USECS_RECV__ ((g_timeval__end_recv - g_timeval__start) / 2700)
+long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
+```
+
+## 生成的结果说明
+
+每一行对角线上的元素为全局带宽最大值！

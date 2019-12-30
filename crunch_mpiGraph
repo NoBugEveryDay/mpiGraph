@@ -12,15 +12,15 @@
 # 
 # Redistribution and use in source and binary forms, with or without modification,
 # are permitted provided that the following conditions are met:
-# â* Redistributions of source code must retain the above copyright notice, this
+# ï¿½* Redistributions of source code must retain the above copyright notice, this
 #    list of conditions and the disclaimer below.
-# â* Redistributions in binary form must reproduce the above copyright notice,
+# ï¿½* Redistributions in binary form must reproduce the above copyright notice,
 #    this list of conditions and the disclaimer (as noted below) in the documentation
 #    and/or other materials provided with the distribution.
-# â* Neither the name of the LLNL nor the names of its contributors may be used to
+# ï¿½* Neither the name of the LLNL nor the names of its contributors may be used to
 #    endorse or promote products derived from this software without specific prior
 #    written permission.
-# â* 
+# ï¿½* 
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 # ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 # WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -117,7 +117,7 @@ sub compute_percentages
   my $base = shift @_;
   my @ret  = ();
   foreach my $val (@_) {
-    push @ret, sprintf("%3.1f", $val / $base * 100);
+    push @ret, sprintf("%3.1f\%%", $val / $base * 100);
   }
   return @ret;
 }
@@ -302,7 +302,7 @@ function zoomed(row,col,imgjs,dir,max) {
   print HTML "<tr><td>Node list:</td><td>" . $hoststr . "</td></tr>\n";
   my $passwd = `grep ":$testuser:" /etc/passwd`;
   my @parts = split(":", $passwd);
-  print HTML "<tr><td>Run by:</td><td>" . $parts[0] . " (" . $parts[4]. ")</td></tr>\n";
+  # print HTML "<tr><td>Run by:</td><td>" . $parts[0] . " (" . $parts[4]. ")</td></tr>\n";
   print HTML "<tr><td>MsgSize:</td><td>$msgsize</td></tr>\n";
   print HTML "<tr><td>Times:</td><td>$times</td></tr>\n";
   print HTML "<tr><td>Window:</td><td>$window</td></tr>\n";
