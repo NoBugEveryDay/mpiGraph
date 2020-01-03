@@ -6,19 +6,19 @@ UCRL-CODE-232117.
 All rights reserved.
 
 This file is part of mpiGraph. For details, see
-  http://www.sourceforge.net/projects/mpigraph
+	http://www.sourceforge.net/projects/mpigraph
 Please also read the Additional BSD Notice below.
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 - Redistributions of source code must retain the above copyright notice, this
-   list of conditions and the disclaimer below.
+	 list of conditions and the disclaimer below.
 - Redistributions in binary form must reproduce the above copyright notice,
-   this list of conditions and the disclaimer (as noted below) in the documentation
-   and/or other materials provided with the distribution.
+	 this list of conditions and the disclaimer (as noted below) in the documentation
+	 and/or other materials provided with the distribution.
 - Neither the name of the LLNL nor the names of its contributors may be used to
-   endorse or promote products derived from this software without specific prior
-   written permission.
+	 endorse or promote products derived from this software without specific prior
+	 written permission.
 - 
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -33,19 +33,19 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Additional BSD Notice
 1. This notice is required to be provided under our contract with the U.S. Department
-   of Energy (DOE). This work was produced at LLNL under Contract No. W-7405-ENG-48
-   with the DOE.
+	 of Energy (DOE). This work was produced at LLNL under Contract No. W-7405-ENG-48
+	 with the DOE.
 2. Neither the United States Government nor LLNL nor any of their employees, makes
-   any warranty, express or implied, or assumes any liability or responsibility for
-   the accuracy, completeness, or usefulness of any information, apparatus, product,
-   or process disclosed, or represents that its use would not infringe privately-owned
-   rights.
+	 any warranty, express or implied, or assumes any liability or responsibility for
+	 the accuracy, completeness, or usefulness of any information, apparatus, product,
+	 or process disclosed, or represents that its use would not infringe privately-owned
+	 rights.
 3. Also, reference herein to any specific commercial products, process, or services
-   by trade name, trademark, manufacturer or otherwise does not necessarily constitute
-   or imply its endorsement, recommendation, or favoring by the United States Government
-   or LLNL. The views and opinions of authors expressed herein do not necessarily state
-   or reflect those of the United States Government or LLNL and shall not be used for
-   advertising or product endorsement purposes.
+	 by trade name, trademark, manufacturer or otherwise does not necessarily constitute
+	 or imply its endorsement, recommendation, or favoring by the United States Government
+	 or LLNL. The views and opinions of authors expressed herein do not necessarily state
+	 or reflect those of the United States Government or LLNL and shall not be used for
+	 advertising or product endorsement purposes.
 */
 
 /* =============================================================
@@ -67,7 +67,8 @@ Additional BSD Notice
 #include <unistd.h>
 #include <mpi.h>
 #include <sys/resource.h>
-/*#include "print_mpi_resources.h"*/
+#include <string.h>
+
 char  hostname[256];
 char* hostnames;
 
@@ -87,12 +88,10 @@ inline long long int getCurrentCycle() {
 	return ((unsigned long long)low) | (((unsigned long long)high)<<32);
 }
 
-#define __TIME_START__    (g_timeval__start    = getCurrentCycle())
-#define __TIME_END_SEND__ (g_timeval__end_send = getCurrentCycle())
-#define __TIME_END_RECV__ (g_timeval__end_recv = getCurrentCycle())
-#define __TIME_USECS_SEND__ ((g_timeval__end_send - g_timeval__start) / 2700)
-#define __TIME_USECS_RECV__ ((g_timeval__end_recv - g_timeval__start) / 2700)
-long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
+#define __TIME_START__ (g_timeval__start  = getCurrentCycle())
+#define __TIME_END__   (g_timeval__end    = getCurrentCycle())
+#define __TIME_USECS__ ((double)(g_timeval__end - g_timeval__start) / 2700)
+long long int g_timeval__start, g_timeval__end;
 
 
 /* =============================================================
@@ -106,206 +105,210 @@ long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
  * 3) There are N-1 such steps so that each task has sent to and received from every task.
  * =============================================================
  */
-void code(int mypid, int nnodes, int size, int times, int window)
+void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int window)
 {
-  /* arguments are: 
-   *   mypid  = rank of this process
-   *   nnodes = number of ranks
-   *   size   = message size in bytes
-   *   times  = number of times to measure bandwidth between task pairs
-   *   window = number of outstanding sends and recvs to a single rank
-   */
-  int i, j, k, w;
+	/* arguments are: 
+	 *   hostid			= rank of this host
+	 *   nnodes			= number of host
+	 * 	 send_or_recv	= send proccess is 0, while recv process is 1
+	 *   size			= message size in bytes
+	 *   iters			= number of iters to measure bandwidth between task pairs
+	 *   window			= number of outstanding sends and recvs to a single rank
+	 */
+	int i, j, k, w;
 
-  /* allocate memory for all of the messages */
-  char* send_message = (char*) malloc(window*size);
-  char* recv_message = (char*) malloc(window*size);
-  MPI_Status*  status_array  = (MPI_Status*)  malloc(sizeof(MPI_Status) *window*2);
-  MPI_Request* request_array = (MPI_Request*) malloc(sizeof(MPI_Request)*window*2);
-  double* sendtimes = (double*) malloc(sizeof(double)*times*nnodes);
-  double* recvtimes = (double*) malloc(sizeof(double)*times*nnodes);
-      
-  int* message_tags = (int*) malloc(window*sizeof(int));
-  for (i=0;i<window;i++) { message_tags[i] = i; }
+	/* allocate memory for all of the messages */
+	char* message = (char*) malloc(window*size);
+	MPI_Request* request_array = (MPI_Request*) malloc(sizeof(MPI_Request)*window);
+	double* times = (double*) malloc(sizeof(double)*iters*nnodes);
+			
+	int* message_tags = (int*) malloc(window*sizeof(int));
+	for (i=0;i<window;i++) { message_tags[i] = i; }
 
-  /* start iterating over distance */
-  int distance = 1;
-  while (distance < nnodes) {
-    /* this test can run for a long time, so print progress to screen as we go */
-    float progress = (float) distance / (float) nnodes * 100.0;
-    if (mypid == 0) {
-      printf("%d of %d (%0.1f%%)\n", distance, nnodes, progress);
-      fflush(stdout);
-    }
+	/* start iterating over distance */
+	int distance = 1;
+	while (distance < nnodes) {
+		/* this test can run for a long time, so print progress to screen as we go */
+		float progress = (float) distance / (float) nnodes * 100.0;
+		if (hostid == 0 && send_or_recv == 0) {
+			printf("%d of %d (%0.1f%%)\n", distance, nnodes, progress);
+			fflush(stdout);
+		}
 
-    /* find tasks distance units to the right (send) and left (recv) */
-    int sendpid = (mypid + distance + nnodes) % nnodes;
-    int recvpid = (mypid - distance + nnodes) % nnodes;
+		/* find tasks distance units to the right (send) and left (recv) */
+		int sendpid = ((hostid + distance + nnodes) % nnodes)*2+1;
+		int recvpid = ((hostid - distance + nnodes) % nnodes)*2;
 
-    /* run through 'times' iterations on a given ring */
-    for (i=0; i<times; i++) {
-      /* couple of synch's to make sure everyone is ready to go */
-      MPI_Barrier(MPI_COMM_WORLD);
-      MPI_Barrier(MPI_COMM_WORLD);
+		/* run through 'iters' iterations on a given ring */
+		for (i=0; i<iters; i++) {
+			/* couple of synch's to make sure everyone is ready to go */
+			MPI_Barrier(MPI_COMM_WORLD);
+			MPI_Barrier(MPI_COMM_WORLD);
 
-      __TIME_START__;
-      k=-1;
-      /* setup a window of irecvs from my partner who is distance steps to my left */
-      for (w=0; w<window; w++) {
-        k=k+1;
-        MPI_Irecv(&recv_message[w*size], size, MPI_BYTE,
-                  recvpid, MPI_ANY_TAG, MPI_COMM_WORLD, &request_array[k]);
-      }
-      /* fire off a window of isends to my send partner distance steps to my right */
-      for (w=0; w<window; w++) {
-        k=k+1;
-        MPI_Isend(&send_message[w*size], size, MPI_BYTE, 
-                  sendpid, message_tags[w], MPI_COMM_WORLD, &request_array[k]); 
-      }
-      /* time sends and receives separately */
-      int flag_sends = 0;
-      int flag_recvs = 0;
-      while(!flag_sends || !flag_recvs) {
-        /* check whether the sends are done */
-        if (!flag_sends) {
-          MPI_Testall((k+1)/2, &request_array[(k+1)/2], &flag_sends, &status_array[(k+1)/2]);
-          if (flag_sends) { __TIME_END_SEND__; }
-        }
+			/* if need to reverse, modify 149 : 0->1, and add "^1 to MPI_Isend and MPI_Irecv pid parameter"*/
+			if (send_or_recv == 0) {
+				/* Send process*/
+				__TIME_START__;
+				for (w=0; w<window; w++) {
+					MPI_Isend(&message[w*size], size, MPI_BYTE, 
+										sendpid, message_tags[w], MPI_COMM_WORLD, &request_array[w]); 
+				}
+				int flag_sends = 0;
+				while (!flag_sends)
+					MPI_Testall(window, request_array, &flag_sends, MPI_STATUSES_IGNORE);
+				__TIME_END__;
+				times[(sendpid)/2*iters+i] = __TIME_USECS__ / (double) w;
+			}
+			else {
+				/*Recv process*/
+				__TIME_START__;
+				for (w=0; w<window; w++) {
+					MPI_Irecv(&message[w*size], size, MPI_BYTE,
+										recvpid, MPI_ANY_TAG, MPI_COMM_WORLD, &request_array[w]);
+				}
+				int flag_recvs = 0;
+				while (!flag_recvs)
+					MPI_Testall(window, request_array, &flag_recvs, MPI_STATUSES_IGNORE);
+				__TIME_END__;
+				times[(recvpid/2)*iters+i] = __TIME_USECS__ / (double) w;
+			}
+		} /* end iters loop */
+		/* bump up the distance for the next ring step */
+		distance++;
+	} /* end distance loop */
 
-        /* check whether the recvs are done */
-        if (!flag_recvs) {
-          MPI_Testall((k+1)/2, &request_array[0], &flag_recvs, &status_array[0]);
-          if (flag_recvs) { __TIME_END_RECV__; }
-        }
-      }
-      sendtimes[sendpid*times+i] = __TIME_USECS_SEND__ / (double) w;
-      recvtimes[recvpid*times+i] = __TIME_USECS_RECV__ / (double) w;
-    } /* end times loop */
-    /* bump up the distance for the next ring step */
-    distance++;
-  } /* end distance loop */
+	/* for each node, compute sum of my bandwidths with that node */
+	if (hostid == 0 && send_or_recv == 0)
+		printf("Gathering results\n");
+	double* sums = (double*) malloc(sizeof(double)*nnodes);
+	for (j = 0; j<nnodes; j++) {
+		sums[j] = 0.0;
+		if (j == hostid) continue;
+		for(i=0; i<iters; i++)
+			sums[j] += times[j*iters+i];
+	}
+	
+	/* gather send bw sums to rank 0 */
+	double* allsums;
+	if (hostid == 0 && send_or_recv == 0) {
+		allsums = (double*) malloc(sizeof(double)*nnodes*nnodes);
+	}
+	int *recvcounts, *displs;
+	if (hostid == 0 && send_or_recv == 0) {
+		recvcounts = (int*) malloc(sizeof(int)*nnodes*2);
+		displs = (int*) malloc(sizeof(int)*nnodes*2);
+		for (i = 0; i < nnodes*2; i++) {
+			recvcounts[i] = i%2 == 0? nnodes: 0;
+			if (i > 0)
+				displs[i] = displs[i-1] + recvcounts[i-1];
+			else displs[i] = 0;
+		}
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Gatherv(sums, send_or_recv == 0? nnodes: 0, MPI_DOUBLE, allsums, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	
+	/* rank 0 computes send stats and prints result */
+	if (hostid == 0 && send_or_recv == 0) {
+		/* compute stats over all nodes */
+		double sendsum = 0.0;
+		double sendmin = 10000000000000000.0;
+		double MBsec   = ((double)(size)) * 1000000.0 / (1024.0*1024.0);
+		for(j=0; j<nnodes; j++) {
+			for(k=0; k<nnodes; k++) {
+				if (j == k) continue;
+				double sendval = allsums[j*nnodes+k];
+				sendsum += sendval;
+				sendmin = (sendval < sendmin) ? sendval : sendmin;
+			}
+		}
 
-  /* for each node, compute sum of my bandwidths with that node */
-  if(mypid == 0) printf("Gathering results\n");
-  double* sendsums = (double*) malloc(sizeof(double)*nnodes);
-  double* recvsums = (double*) malloc(sizeof(double)*nnodes);
-  for(j=0; j<nnodes; j++) {
-    sendsums[j] = 0.0;
-    recvsums[j] = 0.0;
-    if (j == mypid) continue;
-    for(i=0; i<times; i++) {
-      double sendval = sendtimes[j*times+i];
-      double recvval = recvtimes[j*times+i];
-      sendsums[j] += sendval;
-      recvsums[j] += recvval;
-    }
-  }
+		/* print send stats */
+		sendmin /= (double) iters;
+		sendsum /= (double) (nnodes)*(nnodes-1)*iters;
+		printf("\nSend max\t%f\n", MBsec/sendmin);
+		printf("Send avg\t%f\n", MBsec/sendsum);
 
-  /* gather send bw sums to rank 0 */
-  double* allsums;
-  if (mypid == 0) {
-    allsums = (double*) malloc(sizeof(double)*nnodes*nnodes);
-  }
-  MPI_Barrier(MPI_COMM_WORLD);
-  MPI_Gather(sendsums, nnodes, MPI_DOUBLE, allsums, nnodes, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+		/* print send bandwidth table */
+		printf("\n");
+		printf("Send\t");
+		for(k=0; k<nnodes; k++) {
+			printf("%s:%d\t", &hostnames[k*sizeof(hostname)], k);
+		}
+		printf("\n");
+		for(j=0; j<nnodes; j++) {
+			printf("%s:%d to\t", &hostnames[j*sizeof(hostname)], j);
+			for(k=0; k<nnodes; k++) {
+				double val = allsums[j*nnodes+k];
+				if (val != 0.0) { val = MBsec * (double) iters / val; }
+				printf("%0.3f\t", val);
+			}
+			printf("\n");
+		}
+	}
+	
+	if (hostid == 0 && send_or_recv == 0) {
+		for (i = 0; i < nnodes*2; i++) {
+			recvcounts[i] = i%2 == 1? nnodes: 0;
+			if (i > 0)
+				displs[i] = displs[i-1] + recvcounts[i-1];
+			else displs[i] = 0;
+		}
+	}
 
-  /* rank 0 computes send stats and prints result */
-  if (mypid == 0) {
-    /* compute stats over all nodes */
-    double sendsum = 0.0;
-    double sendmin = 10000000000000000.0;
-    double MBsec   = ((double)(size)) * 1000000.0 / (1024.0*1024.0);
-    for(j=0; j<nnodes; j++) {
-      for(k=0; k<nnodes; k++) {
-        if (j == k) continue;
-        double sendval = allsums[j*nnodes+k];
-        sendsum += sendval;
-        sendmin = (sendval < sendmin) ? sendval : sendmin;
-      }
-    }
+	/* gather recv bw sums to rank 0 */
+	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Gatherv(sums, send_or_recv == 1? nnodes: 0, MPI_DOUBLE, allsums, recvcounts, displs, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	
+	/* rank 0 computes recv stats and prints result */
+	if (hostid == 0 && send_or_recv == 0) {
+		/* compute stats over all nodes */
+		double recvsum = 0.0;
+		double recvmin = 10000000000000000.0;
+		double MBsec   = ((double)(size)) * 1000000.0 / (1024.0*1024.0);
+		for(j=0; j<nnodes; j++) {
+			for(k=0; k<nnodes; k++) {
+				if (j == k) continue;
+				double recvval = allsums[j*nnodes+k];
+				recvsum += recvval;
+				recvmin = (recvval < recvmin) ? recvval : recvmin;
+			}
+		}
 
-    /* print send stats */
-    sendmin /= (double) times;
-    sendsum /= (double) (nnodes)*(nnodes-1)*times;
-    printf("\nSend max\t%f\n", MBsec/sendmin);
-    printf("Send avg\t%f\n", MBsec/sendsum);
+		/* print receive stats */
+		recvmin /= (double) iters;
+		recvsum /= (double) (nnodes)*(nnodes-1)*iters;
+		printf("\nRecv max\t%f\n", MBsec/recvmin);
+		printf("Recv avg\t%f\n", MBsec/recvsum);
 
-    /* print send bandwidth table */
-    printf("\n");
-    printf("Send\t");
-    for(k=0; k<nnodes; k++) {
-      printf("%s:%d\t", &hostnames[k*sizeof(hostname)], k);
-    }
-    printf("\n");
-    for(j=0; j<nnodes; j++) {
-      printf("%s:%d to\t", &hostnames[j*sizeof(hostname)], j);
-      for(k=0; k<nnodes; k++) {
-        double val = allsums[j*nnodes+k];
-        if (val != 0.0) { val = MBsec * (double) times / val; }
-        printf("%0.3f\t", val);
-      }
-      printf("\n");
-    }
-  }
+		/* print receive bandwidth table */
+		printf("\n");
+		printf("Recv\t");
+		for(k=0; k<nnodes; k++) {
+			printf("%s:%d\t", &hostnames[k*sizeof(hostname)], k);
+		}
+		printf("\n");
+		for(j=0; j<nnodes; j++) {
+			printf("%s:%d from\t", &hostnames[j*sizeof(hostname)], j);
+			for(k=0; k<nnodes; k++) {
+				double val = allsums[j*nnodes+k];
+				if (val != 0.0) { val = MBsec * (double) iters / val; }
+				printf("%0.3f\t", val);
+			}
+			printf("\n");
+		}
+	}
+	
+	/* free off memory */
+	if (hostid == 0 && send_or_recv == 0) {
+		free(allsums);
+	}
+	free(sums);
+	free(message);
+	free(request_array);
+	free(times);
+	free(message_tags);
 
-  /* gather recv bw sums to rank 0 */
-  MPI_Barrier(MPI_COMM_WORLD);
-  MPI_Gather(recvsums, nnodes, MPI_DOUBLE, allsums, nnodes, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  /* rank 0 computes recv stats and prints result */
-  if (mypid == 0) {
-    /* compute stats over all nodes */
-    double recvsum = 0.0;
-    double recvmin = 10000000000000000.0;
-    double MBsec   = ((double)(size)) * 1000000.0 / (1024.0*1024.0);
-    for(j=0; j<nnodes; j++) {
-      for(k=0; k<nnodes; k++) {
-        if (j == k) continue;
-        double recvval = allsums[j*nnodes+k];
-        recvsum += recvval;
-        recvmin = (recvval < recvmin) ? recvval : recvmin;
-      }
-    }
-
-    /* print receive stats */
-    recvmin /= (double) times;
-    recvsum /= (double) (nnodes)*(nnodes-1)*times;
-    printf("\nRecv max\t%f\n", MBsec/recvmin);
-    printf("Recv avg\t%f\n", MBsec/recvsum);
-
-    /* print receive bandwidth table */
-    printf("\n");
-    printf("Recv\t");
-    for(k=0; k<nnodes; k++) {
-      printf("%s:%d\t", &hostnames[k*sizeof(hostname)], k);
-    }
-    printf("\n");
-    for(j=0; j<nnodes; j++) {
-      printf("%s:%d from\t", &hostnames[j*sizeof(hostname)], j);
-      for(k=0; k<nnodes; k++) {
-        double val = allsums[j*nnodes+k];
-        if (val != 0.0) { val = MBsec * (double) times / val; }
-        printf("%0.3f\t", val);
-      }
-      printf("\n");
-    }
-  }
-
-  /* free off memory */
-  if (mypid == 0) {
-    free(allsums);
-  }
-  free(sendsums);
-  free(recvsums);
-  free(send_message);
-  free(recv_message);
-  free(status_array);
-  free(request_array);
-  free(sendtimes);
-  free(recvtimes);
-  free(message_tags);
-
-  return;
+	return;
 }
 
 /* =============================================================
@@ -315,55 +318,76 @@ void code(int mypid, int nnodes, int size, int times, int window)
  */
 int main(int argc, char **argv)
 {
-  int rank, ranks, size, times, window;
-  int args[3];
+	int rank, ranks, size, iters, window;
+	int args[3];
 
-  /* start up */
-  MPI_Init(&argc,&argv);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &ranks);
-       
-  /* collect hostnames of all the processes */
-  gethostname(hostname, sizeof(hostname));
-  hostnames = (char*) malloc(sizeof(hostname)*ranks);
-  MPI_Gather(hostname, sizeof(hostname), MPI_CHAR, hostnames, sizeof(hostname), MPI_CHAR, 0, MPI_COMM_WORLD);
+	/* start up */
+	MPI_Init(&argc,&argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &ranks);
+			 
+	/* collect hostnames of all the processes */
+	gethostname(hostname, sizeof(hostname));
+	if (rank == 0)
+		hostnames = (char*) malloc(sizeof(hostname)*ranks);
+	MPI_Gather(hostname, sizeof(hostname), MPI_CHAR, hostnames, sizeof(hostname), MPI_CHAR, 0, MPI_COMM_WORLD);
 
-  /* set job parameters, read values from command line if they're there */
-  size = 4096*4;
-  times = 100;
-  window = 50;
-  if (argc == 4) {
-    size   = atoi(argv[1]);
-    times  = atoi(argv[2]);
-    window = atoi(argv[3]);
-  }
-  args[0] = size;
-  args[1] = times;
-  args[2] = window;
+	/* confirm */
+	if (rank == 0) {
+		int i;
+		if (ranks % 2) {
+			printf("This program must run 2 process on each node!!\n");
+			MPI_Abort(MPI_COMM_WORLD, 0);
+			return 0;
+		}
+		for (i = 0; i < ranks; i+=2)
+			if (strcmp(&hostnames[i*sizeof(hostname)], &hostnames[(i+1)*sizeof(hostname)])) {
+				printf("This program must run 2 process on each node!\n");
+				MPI_Abort(MPI_COMM_WORLD, 0);
+				return 0;
+			}
+		for (i = 1; i < ranks/2; i++)
+			memcpy(&hostnames[i*sizeof(hostname)], &hostnames[i*2*sizeof(hostname)], sizeof(hostname));
+		// for (i = 0; i < ranks/2; i++)
+		// 	printf("%s\n", &hostnames[i*sizeof(hostname)]);
+	}
 
-  /* print the header */
-  if (rank == 0) {
-    /* mark start of output */
-    printf("START mpiGraph v%s\n", VERS);
-    printf("MsgSize\t%d\nTimes\t%d\nWindow\t%d\n",size,times,window);
-    printf("Procs\t%d\n\n",ranks);
-  }
+	/* set job parameters, read values from command line if they're there */
+	size = 4096*4;
+	iters = 100;
+	window = 50;
+	if (argc == 4) {
+		size   = atoi(argv[1]);
+		iters  = atoi(argv[2]);
+		window = atoi(argv[3]);
+	}
+	args[0] = size;
+	args[1] = iters;
+	args[2] = window;
 
-  /* synchronize, then start the run */
-  MPI_Barrier(MPI_COMM_WORLD);
-  code(rank, ranks, size, times, window);
-  MPI_Barrier(MPI_COMM_WORLD);
+	/* print the header */
+	if (rank == 0) {
+		/* mark start of output */
+		printf("START mpiGraph v%s\n", VERS);
+		printf("MsgSize\t%d\nTimes\t%d\nWindow\t%d\n",size,iters,window);
+		printf("Procs\t%d\n\n",ranks);
+	}
 
-  /* print memory usage */
+	/* synchronize, then start the run */
+	MPI_Barrier(MPI_COMM_WORLD);
+	code(rank/2, ranks/2, rank%2, size, iters, window);
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	/* print memory usage */
 /*
-  if(rank == 0) { printf("\n"); }
-  print_mpi_resources();
+	if(rank == 0) { printf("\n"); }
+	print_mpi_resources();
 */
 
-  /* mark end of output */
-  if (rank == 0) { printf("END mpiGraph\n"); }
+	/* mark end of output */
+	if (rank == 0) { printf("END mpiGraph\n"); }
 
-  /* shut down */
-  MPI_Finalize();
-  return 0;
+	/* shut down */
+	MPI_Finalize();
+	return 0;
 }

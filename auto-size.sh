@@ -7,7 +7,9 @@ iters=131072
 window=1
 count=100
 
-mpi="openmpi"
+mpi="mvapich"
+
+module purge
 
 if [ $mpi = "intel" ]
 then
@@ -37,18 +39,18 @@ do
 
 	if [ $mpi = "intel" ]
 	then
-		mpirun -n 32 -ppn 1 -hosts \
+		mpirun -n 64 -ppn 2 -hosts \
 		cpn1,cpn2,cpn3,cpn4,cpn5,cpn6,cpn7,cpn8,cpn9,cpn10,cpn11,cpn12,cpn13,cpn14,cpn15,cpn16,cpn106,cpn107,cpn108,cpn109,cpn110,cpn111,cpn112,cpn113,cpn114,cpn115,cpn116,cpn117,cpn118,cpn119,cpn120,cpn121 \
 		./mpiGraph $size $iters $window > mpiGraph.out
 	elif [ $mpi = "mvapich" ]
 	then
-		MV2_IBA_HCA=mlx5_2 mpirun -n 32 -ppn 1 -hosts \
+		MV2_IBA_HCA=mlx5_2 mpirun -n 64 -ppn 2 -hosts \
 		cpn1,cpn2,cpn3,cpn4,cpn5,cpn6,cpn7,cpn8,cpn9,cpn10,cpn11,cpn12,cpn13,cpn14,cpn15,cpn16,cpn106,cpn107,cpn108,cpn109,cpn110,cpn111,cpn112,cpn113,cpn114,cpn115,cpn116,cpn117,cpn118,cpn119,cpn120,cpn121 \
 		./mpiGraph $size $iters $window > mpiGraph.out
 	elif [ $mpi = "openmpi" ]
 	then
-		mpirun --mca btl openib,self,vader --mca btl_openib_if_include mlx5_2 --allow-run-as-root -n 32 -npernode 1 -host \
-		cpn1,cpn2,cpn3,cpn4,cpn5,cpn6,cpn7,cpn8,cpn9,cpn10,cpn11,cpn12,cpn13,cpn14,cpn15,cpn16,cpn106,cpn107,cpn108,cpn109,cpn110,cpn111,cpn112,cpn113,cpn114,cpn115,cpn116,cpn117,cpn118,cpn119,cpn120,cpn121 \
+		mpirun --mca btl openib,self,vader --mca btl_openib_if_include mlx5_2 -x LD_LIBRARY_PATH --allow-run-as-root -n 64 -npernode 2 -host \
+		cpn1:2,cpn2:2,cpn3:2,cpn4:2,cpn5:2,cpn6:2,cpn7:2,cpn8:2,cpn9:2,cpn10:2,cpn11:2,cpn12:2,cpn13:2,cpn14:2,cpn15:2,cpn16:2,cpn106:2,cpn107:2,cpn108:2,cpn109:2,cpn110:2,cpn111:2,cpn112:2,cpn113:2,cpn114:2,cpn115:2,cpn116:2,cpn117:2,cpn118:2,cpn119:2,cpn120:2,cpn121:2 \
 		./mpiGraph $size $iters $window > mpiGraph.out
 	fi
 

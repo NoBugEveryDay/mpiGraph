@@ -147,3 +147,9 @@ long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 ## 生成的结果说明
 
 每一行对角线上的元素为全局带宽最大值！
+
+## 超强优化
+
+每个节点跑两个进程，一个收，一个发，以实现更精确的计时，且互不干扰
+
+详细见代码
