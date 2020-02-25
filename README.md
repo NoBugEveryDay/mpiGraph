@@ -1,113 +1,31 @@
-# mpiGraph运行方法
+# mpiGraph Advanced
 
-## 下载
+## 简介
 
-到GitHub上下载源码即可 https://github.com/LLNL/mpiGraph 
+基于 https://github.com/LLNL/mpiGraph 进行了多项优化的版本，修复了bug，提高了测试结果准确性，重写了html结果渲染器
 
-## 编译
+## 使用方法
 
-#### 编译安装主程序
+```bash
+# Intel MPI
+make intel
+mpirun -n 8 -ppn 2 -hosts cpn1,cpn2,cpn3,cpn4 ./mpiGraph $size $iters $window > mpiGraph.out
+# Mvapich
+make mvapich
+mpirun -n 64 -ppn 2 -hosts cpn1,cpn2,cpn3,cpn4 ./mpiGraph $size $iters $window > mpiGraph.out
+# OpenMPI
+make openmpi
+mpirun -n 64 -npernode 2 -host cpn1:2,cpn2:2,cpn3:2,cpn4:2 ./mpiGraph $size $iters $window > mpiGraph.out
 
-```shell
-unzip mpiGraph-master.zip
-cd mpiGraph-master/
-module load IMPI/2018.1.163-icc-18.0.1
+# html版结果渲染
+python3 html_generator.py -i mpiGraph.out [-o OUTPUT_DIR_NAME]
 ```
 
-编辑`makefile`
-
-```makefile
-all: clean
-        mpiicc -O3 -xhost -ipo -o mpiGraph mpiGraph.c
-
-debug:
-        mpiicc -g -O0 -o mpiGraph mpiGraph.c
-
-clean:
-        rm -rf mpiGraph.o mpiGraph
-```
-
-然后直接`make`
-
-#### 安装netpbm
-
-```shell
-wget http://hfs.sysu.tech/software/linux/mpiGraph/netpbm/netpbm-10.79.00-7.el7.x86_64.rpm
-wget http://hfs.sysu.tech/software/linux/mpiGraph/netpbm/netpbm-progs-10.79.00-7.el7.x86_64.rpm
-rpm2cpio netpbm-10.79.00-7.el7.x86_64.rpm | cpio -idvm
-rpm2cpio netpbm-progs-10.79.00-7.el7.x86_64.rpm | cpio -idvm
-```
-
-## 运行
-
-参数
-
-```shell
-mpiGraph <size> <iters> <window>
-```
-
-第一个参数`size` 为消息大小，单位为byte
-
-第二个参数`iters `为迭代次数
-
-第三个参数`window`为每次迭代同时发送的消息的数量
-
-```shell
-srun -N 32 -p test_docker ./mpiGraph 1048576 1000 30 > mpiGraph.out
-```
-
-或者
-
-```shell
-mpirun -n 32 -ppn 1 -hosts cpn1,cpn2,cpn3,cpn4,cpn5,cpn6,cpn7,cpn8,cpn9,cpn10,cpn11,cpn12,cpn13,cpn14,cpn15,cpn16,cpn106,cpn107,cpn108,cpn109,cpn110,cpn111,cpn112,cpn113,cpn114,cpn115,cpn116,cpn117,cpn118,cpn119,cpn120,cpn121 ./mpiGraph 1048576 1000 30 > mpiGraph.out
-```
-
-## 后处理
-
-```shell
-export PATH=$PATH:/GPUFS/nsccgz_yfdu_16/fgn/sriov-test/mpigraph/usr/bin
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/GPUFS/nsccgz_yfdu_16/fgn/sriov-test/mpigraph/usr/lib64
-./crunch_mpiGraph mpiGraph.out
-```
-
-生成带图的html网页
-
-## debug
-
-### bug1
-
-`crunch_mpiGraph`第120行
-
-```perl
-push @ret, sprintf("%3.1f%", $val / $base * 100);
-改为
-push @ret, sprintf("%3.1f%%", $val / $base * 100);
-```
-
-不改会出现如下bug
-
-```
-Missing argument in sprintf at ./crunch_mpiGraph line 120.
-Invalid conversion in sprintf: end of string at ./crunch_mpiGraph line 120.
-```
-
-生成的HTML在有些地方会有undefined，不知道这个算不算bug
-
-### bug2
-
-`crunch_mpiGraph`注释掉305行的
-
-```perl
-print HTML "<tr><td>Run by:</td><td>" . $parts[0] . " (" . $parts[4]. ")</td></tr>\n";
-```
-
-因为有的HPC集群上无法正确获取用户名
-
-### bug3
+## 修复的bug
 
 `mpiGraph`超级坑的bug，要不是openmpi给我报错了，还真发现不了它的下标写错了……
 
-第171行两个数组下标计算错误，都多了一个`-1`
+（源码）第171行两个数组下标计算错误，都多了一个`-1`
 
 将
 
@@ -121,11 +39,11 @@ MPI_Testall((k+1)/2, &request_array[(k+1)/2-1], &flag_sends, &status_array[(k+1)
 MPI_Testall((k+1)/2, &request_array[(k+1)/2], &flag_sends, &status_array[(k+1)/2]);
 ```
 
-## 优化
+## 计时准确性优化
 
 因为对小消息计时非常不准，所以使用CPU周期计时器对代码进行优化
 
-将81行至116行的代码替换为如下
+将（源码）81行至116行的代码替换为如下
 
 ```c++
 long long int CPU_FREQUENCY=2700000000;
@@ -144,12 +62,12 @@ inline long long int getCurrentCycle() {
 long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 ```
 
+另外，使用同一个进程同时对收和发计时并不科学，所以将代码优化为了一个节点上跑两个进程，一个进程负责发送，另一个进程负责接收。
+
 ## 生成的结果说明
 
 每一行对角线上的元素为全局带宽最大值！
 
-## 超强优化
+## HTML结果渲染器
 
-每个节点跑两个进程，一个收，一个发，以实现更精确的计时，且互不干扰
-
-详细见代码
+不再依赖于perl，而是使用python3，不需要任何其他的包
