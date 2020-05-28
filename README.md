@@ -64,6 +64,11 @@ long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 
 另外，使用同一个进程同时对收和发计时并不科学，所以将代码优化为了一个节点上跑两个进程，一个进程负责发送，另一个进程负责接收。
 
+## 新增了warmup参数（可选）
+
+第四个参数为需要warmup的秒数，第五个参数为warmup能使用的最大GB数。
+这两个参数必须要与前三个参数一起使用，即不能只使用这两个参数，而不指定size、iters、window
+
 ## 生成的结果说明
 
 每一行对角线上的元素为全局带宽最大值！
