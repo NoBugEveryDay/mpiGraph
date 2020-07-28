@@ -80,18 +80,10 @@ char VERS[] = "1.5";
  * =============================================================
  */
 
-long long int CPU_FREQUENCY=2700000000;
-
-inline long long int getCurrentCycle() {
-	unsigned low, high;
-	__asm__ __volatile__("rdtsc" : "=a" (low), "=d" (high));
-	return ((unsigned long long)low) | (((unsigned long long)high)<<32);
-}
-
-#define __TIME_START__ (g_timeval__start  = getCurrentCycle())
-#define __TIME_END__   (g_timeval__end    = getCurrentCycle())
-#define __TIME_USECS__ ((double)(g_timeval__end - g_timeval__start) / 2700)
-long long int g_timeval__start, g_timeval__end;
+double g_timeval__start, g_timeval__end;
+#define __TIME_START__ (g_timeval__start  = MPI_Wtime())
+#define __TIME_END__   (g_timeval__end    = MPI_Wtime())
+#define __TIME_USECS__ ((g_timeval__end - g_timeval__start)*((double)1000000))
 
 
 /* =============================================================
@@ -105,7 +97,8 @@ long long int g_timeval__start, g_timeval__end;
  * 3) There are N-1 such steps so that each task has sent to and received from every task.
  * =============================================================
  */
-void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int window, int warmup, int warmup_memory) {
+void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int window, int warmup)
+{
 	/* arguments are: 
 	 *   hostid			= rank of this host
 	 *   nnodes			= number of host
@@ -113,33 +106,13 @@ void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int wind
 	 *   size			= message size in bytes
 	 *   iters			= number of iters to measure bandwidth between task pairs
 	 *   window			= number of outstanding sends and recvs to a single rank
-	 *   warmup			= warm up in second
-	 *   warmup_memory  = memory used for warm up in GB
+	 *   warmup			= number of iters to warmup
 	 */
-	
-	if (warmup) {
-		long long int warmup_size = size;
-		if (warmup_size*nnodes*2 > (long long)warmup_memory/2*1024*1024*1024) {
-			warmup_size = (long long)warmup_memory/2*1024*1024*1024/(nnodes*2);
-		}
-		char *send_buf = (char*) malloc(warmup_size);
-		char *recv_buf = (char*) malloc((long long)warmup_size*nnodes*2);
-		double pass = 0;
-		while (pass < warmup) {
-			__TIME_START__;
-			MPI_Allgather(send_buf, warmup_size, MPI_BYTE, recv_buf, warmup_size, MPI_BYTE, MPI_COMM_WORLD);
-			__TIME_END__;
-			pass += __TIME_USECS__/1000000;
-			MPI_Bcast(&pass, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-		}
-		free(send_buf);
-		free(recv_buf);
-	}
-
 	int i, j, k, w;
 
 	/* allocate memory for all of the messages */
 	char* message = (char*) malloc(window*size);
+	memset(message, 0, window*size);
 	MPI_Request* request_array = (MPI_Request*) malloc(sizeof(MPI_Request)*window);
 	double* times = (double*) malloc(sizeof(double)*iters*nnodes);
 			
@@ -161,7 +134,7 @@ void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int wind
 		int recvpid = ((hostid - distance + nnodes) % nnodes)*2;
 
 		/* run through 'iters' iterations on a given ring */
-		for (i=0; i<iters; i++) {
+		for (i=-warmup; i<iters; i++) {
 			/* couple of synch's to make sure everyone is ready to go */
 			MPI_Barrier(MPI_COMM_WORLD);
 			MPI_Barrier(MPI_COMM_WORLD);
@@ -178,7 +151,8 @@ void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int wind
 				while (!flag_sends)
 					MPI_Testall(window, request_array, &flag_sends, MPI_STATUSES_IGNORE);
 				__TIME_END__;
-				times[(sendpid)/2*iters+i] = __TIME_USECS__ / (double) w;
+				if (i >= 0)
+					times[(sendpid)/2*iters+i] = __TIME_USECS__ / (double) w;
 			}
 			else {
 				/*Recv process*/
@@ -191,7 +165,8 @@ void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int wind
 				while (!flag_recvs)
 					MPI_Testall(window, request_array, &flag_recvs, MPI_STATUSES_IGNORE);
 				__TIME_END__;
-				times[(recvpid/2)*iters+i] = __TIME_USECS__ / (double) w;
+				if (i >= 0)
+					times[(recvpid/2)*iters+i] = __TIME_USECS__ / (double) w;
 			}
 		} /* end iters loop */
 		/* bump up the distance for the next ring step */
@@ -339,7 +314,7 @@ void code(int hostid, int nnodes, int send_or_recv,int size, int iters, int wind
  */
 int main(int argc, char **argv)
 {
-	int rank, ranks, size, iters, window, warmup, warmup_memory;
+	int rank, ranks, size, iters, window, warmup;
 	int args[3];
 
 	/* start up */
@@ -378,14 +353,12 @@ int main(int argc, char **argv)
 	iters = 100;
 	window = 50;
 	warmup = 0;
-	warmup_memory = 0;
 	if (argc >= 4) {
 		size   = atoi(argv[1]);
 		iters  = atoi(argv[2]);
 		window = atoi(argv[3]);
-		if (argc == 6) {
+		if (argc == 5) {
 			warmup = atoi(argv[4]);
-			warmup_memory = atoi(argv[5]);
 		}
 	}
 	args[0] = size;
@@ -397,13 +370,13 @@ int main(int argc, char **argv)
 		/* mark start of output */
 		printf("START mpiGraph v%s\n", VERS);
 		printf("MsgSize\t%d\nTimes\t%d\nWindow\t%d\n",size,iters,window);
-		printf("Warmup\t%d\nWarmup_memory\t%d\n", warmup, warmup_memory);
+		printf("Warmup\t%d\n", warmup);
 		printf("Procs\t%d\n\n",ranks);
 	}
 
 	/* synchronize, then start the run */
 	MPI_Barrier(MPI_COMM_WORLD);
-	code(rank/2, ranks/2, rank%2, size, iters, window, warmup, warmup_memory);
+	code(rank/2, ranks/2, rank%2, size, iters, window, warmup);
 	MPI_Barrier(MPI_COMM_WORLD);
 
 	/* print memory usage */

@@ -66,8 +66,8 @@ long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 
 ## 新增了warmup参数（可选）
 
-第四个参数为需要warmup的秒数，第五个参数为warmup能使用的最大GB数。
-这两个参数必须要与前三个参数一起使用，即不能只使用这两个参数，而不指定size、iters、window
+第四个参数为需要warmup的迭代次数
+这个参数必须要与前三个参数一起使用，即不能只使用这个参数，而不指定size、iters、window
 
 ## 生成的结果说明
 
@@ -75,4 +75,5 @@ long long int g_timeval__start, g_timeval__end_send, g_timeval__end_recv;
 
 ## HTML结果渲染器
 
-不再依赖于perl，而是使用python3，不需要任何其他的包
+不再依赖于perl，而是使用python3.8，不需要任何其他的包
+如果遇到包不可用的问题，可以尝试重新在`pip-lib`中安装相应的包
